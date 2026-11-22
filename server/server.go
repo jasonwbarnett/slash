@@ -77,8 +77,17 @@ func NewServer(ctx context.Context, profile *profile.Profile, store *store.Store
 			middleware.RateLimiterMemoryStoreConfig{Rate: 30, Burst: 60, ExpiresIn: 3 * time.Minute},
 		),
 		IdentifierExtractor: func(ctx echo.Context) (string, error) {
-			id := ctx.RealIP()
-			return id, nil
+			// jwb fork: don't trust client-supplied X-Forwarded-For/X-Real-IP
+			// (GO-2026-6872). Slash is only reachable through Cloudflare, which
+			// always overwrites CF-Connecting-IP; otherwise use the TCP peer.
+			if ip := ctx.Request().Header.Get("CF-Connecting-IP"); ip != "" {
+				return ip, nil
+			}
+			host, _, err := net.SplitHostPort(ctx.Request().RemoteAddr)
+			if err != nil {
+				return ctx.Request().RemoteAddr, nil
+			}
+			return host, nil
 		},
 		ErrorHandler: func(context echo.Context, err error) error {
 			return context.JSON(http.StatusForbidden, nil)
